@@ -4,7 +4,7 @@
   Estrategia: la app y sus librerías, primero de la caché (y se refrescan por detrás);
   Supabase y las teselas del mapa, siempre de la red.
 */
-const CACHE_VERSION = "regadores-r4";
+const CACHE_VERSION = "regadores-r6";
 const APP_SHELL = [
   "./",
   "./index.html",

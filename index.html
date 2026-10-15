@@ -967,6 +967,25 @@ td.mal{color:var(--rojo);font-weight:700}
 .fila-parcela button{height:42px;border:1px solid var(--linea);border-radius:9px;background:var(--superficie-2);color:var(--rojo);font-size:20px;margin-bottom:8px}
 .etq-mapa{background:rgba(255,255,255,.85);border:none;border-radius:6px;padding:1px 5px;font-weight:700;font-size:12px;color:#12262F;box-shadow:none}
 .etq-mapa::before{display:none}
+.tanques-dib{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tq-dib{display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;background:var(--superficie);border:2px solid var(--linea);border-radius:16px;padding:10px 6px 10px;min-width:0}
+.tq-dib.hecho{border-color:var(--ok)}
+.tq-dib b{font-size:15px;line-height:1.15;margin-top:4px;overflow-wrap:anywhere}
+.tq-dib small{font-size:12px;color:var(--tinta-2)}
+.tq-num{font-family:var(--letra-cifra);font-weight:700;font-size:22px;color:var(--tinta)}
+.tq-cuerpo{position:relative;width:62px;height:96px;border:3px solid var(--tinta-2);border-radius:16px 16px 10px 10px;background:var(--superficie-2);overflow:hidden}
+.tq-cuerpo.grande{width:84px;height:130px}
+.tq-cuerpo i{position:absolute;left:0;right:0;bottom:0;opacity:.85}
+.tq-litros{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);font-size:13px;font-weight:700;color:var(--tinta);text-shadow:0 0 4px var(--superficie),0 0 4px var(--superficie)}
+.tq-dib.solo{border:none;background:none;padding:0}
+.nivel-cab{display:flex;gap:16px;align-items:center;margin:6px 0 10px}
+.nivel-cab b{display:block;font-size:24px}
+.nivel-cab span{display:block;font-size:15px;color:var(--tinta-2)}
+.novedades{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--ambar-suave);border:2px solid var(--ambar);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+.novedades b{display:block;font-size:17px;color:var(--ambar)}
+.novedades span{display:block;font-size:15px}
+.novedades button{border:none;background:var(--ambar);color:#fff;font-weight:700;border-radius:10px;padding:10px 14px}
+@media (max-width:360px){.tanques-dib{grid-template-columns:repeat(2,1fr)}}
 .oculto{display:none!important}
 @media (min-width:600px){ main{padding-top:18px} }
 </style>
@@ -997,8 +1016,9 @@ td.mal{color:var(--rojo);font-weight:700}
 const SUPABASE_URL = "https://utdcfnqnusfzlkorduct.supabase.co";
 const SUPABASE_KEY = "sb_publishable_L9mMlb6BEHzSnj9lyN-JeA_tzASFAqa";
 
-const VERSION = "r4";
+const VERSION = "r6";
 const PIN_ADMIN = "2468";
+const SUPABASE_BASE = String(SUPABASE_URL).trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
 const CONEXION_CONFIGURADA = /^https?:\/\/[^ ]+$/.test(SUPABASE_URL) && !!SUPABASE_KEY && !SUPABASE_KEY.startsWith("PEGAR");
 const DIAS_CORRECCION = 7;
 const DIAS_HISTORIAL = 35;
@@ -1017,7 +1037,7 @@ const NIVELES = [{f: 1, t: "Lleno"}, {f: 0.75, t: "3/4"}, {f: 0.5, t: "1/2"}];
 function maestrosVacios(){ return {fincas: [], cabezales: [], depositos: [], valvulas: [], vparcelas: [], productos: [], productosFinca: [], personas: [], parcelas: [], poligonos: []}; }
 const MODO_INICIAL = CONEXION_CONFIGURADA ? "campo" : "demo";
 const S = {
-  modo: MODO_INICIAL, conexion: {url: SUPABASE_URL, key: SUPABASE_KEY},
+  modo: MODO_INICIAL, conexion: {url: SUPABASE_BASE, key: String(SUPABASE_KEY).trim()}, ultimoError: null,
   fincaCod: null, cabezalId: null, personaId: null,
   m: maestrosVacios(),
   descarga: null, reg: [],
@@ -1111,8 +1131,11 @@ async function sb(metodo, esquema, ruta, cuerpo, extra){
   if(!resp.ok){
     const txt = await resp.text();
     const err = new Error(metodo + " " + ruta.split("?")[0] + ": " + resp.status + " " + txt.slice(0, 220));
-    err.status = resp.status; throw err;
+    err.status = resp.status;
+    S.ultimoError = {cuando: new Date().toISOString(), msg: err.message};
+    throw err;
   }
+  S.ultimoError = null;
   if(resp.status === 204) return null;
   const t = await resp.text();
   return t ? JSON.parse(t) : null;
@@ -1226,6 +1249,27 @@ function atrasada(r){
 }
 function marcada(r){ return (r.avisos && r.avisos.length) || r.reinicio || atrasada(r); }
 function cargasDe(idD){ return S.reg.filter(r => r.tipo === "carga" && r.id_deposito === idD).sort((a, b) => a.fecha < b.fecha ? 1 : -1); }
+function nivelesDe(idD){ return S.reg.filter(r => r.tipo === "nivel" && r.id_deposito === idD).sort((a, b) => a.fecha < b.fecha ? 1 : -1); }
+function productosActuales(d){
+  const ult = cargasDe(d.id_deposito)[0];
+  if(ult && ult.lineas && ult.lineas.length) return ult.lineas.map(l => l.id_producto);
+  return d.id_producto ? [d.id_producto] : [];
+}
+function nombreContenido(d){
+  const ps = productosActuales(d).map(id => (producto(id) || {}).nombre).filter(Boolean);
+  return ps.length ? ps.join(" + ") : "Sin producto";
+}
+function estadoNivel(d){
+  const c = cargasDe(d.id_deposito)[0], n = nivelesDe(d.id_deposito)[0];
+  const ev = [c ? {fecha: c.fecha, litros: Number(c.volumen_final_l), tipo: "carga"} : null, n ? {fecha: n.fecha, litros: Number(n.nivel_l), tipo: "nivel"} : null].filter(Boolean).sort((a, b) => a.fecha < b.fecha ? 1 : -1);
+  return ev[0] || null;
+}
+const COLORES_PRODUCTO = ["#2F7EA8", "#6A8D2F", "#B2652B", "#7B5EA7", "#2E8C7E", "#A8434F", "#8C7A2E", "#4A6FA5"];
+function colorProducto(id){
+  if(!id) return "#9AA5AA";
+  let h = 0; for(const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return COLORES_PRODUCTO[h % COLORES_PRODUCTO.length];
+}
 function pendientes(){ return S.reg.filter(r => r.estado === "pendiente"); }
 function conflictos(){ return S.reg.filter(r => r.estado === "conflicto"); }
 function generarDemo(){
@@ -1344,6 +1388,17 @@ function generarDemo(){
       });
     }
   });
+  depositos.forEach(d => {
+    const ult = reg.filter(r => r.tipo === "carga" && r.id_deposito === d.id_deposito).sort((a, b) => a.fecha < b.fecha ? 1 : -1)[0];
+    if(!ult) return;
+    const dias = Math.min(4, difDias(diaDeTimestamp(ult.fecha), h) - 1);
+    for(let k = 1; k <= dias; k++){
+      const dia = sumarDias(diaDeTimestamp(ult.fecha), k);
+      if(diaSemana(dia) === 0) continue;
+      const ts = new Date(aFecha(dia).getTime() + 8 * 3600000).toISOString();
+      reg.push({id: uuid(), tipo: "nivel", id_deposito: d.id_deposito, fecha: ts, nivel_l: Math.max(0, Math.round(d.capacidad_l * (1 - 0.18 * k) / 50) * 50), id_persona: "p-regador", observaciones: null, registrado: ts, estado: "subido", origen: "servidor"});
+    }
+  });
   return {m, reg};
 }
 
@@ -1379,10 +1434,11 @@ async function descargarDatosFinca(){
   const desde = sumarDias(hoy(), -DIAS_HISTORIAL);
   const parcelas = (await sbGet("nucleo", "parcelas?select=codigo_parcela&codigo_finca=eq." + enc(f) + "&order=codigo_parcela")).map(p => p.codigo_parcela);
   const poligonos = parcelas.length ? await sbGet("nucleo", "parcelas_poligono?select=codigo_parcela,geojson&codigo_parcela=in.(" + parcelas.map(enc).join(",") + ")") : [];
-  const [vparcelas, lecturas, preparaciones] = await Promise.all([
+  const [vparcelas, lecturas, preparaciones, niveles] = await Promise.all([
     idsV.length ? sbGet("fertirrigacion", "valvulas_parcelas?id_valvula=in.(" + idsV.join(",") + ")") : [],
     idsV.length ? sbGet("fertirrigacion", "lecturas_contador?id_valvula=in.(" + idsV.join(",") + ")&fecha=gte." + desde + "&order=fecha") : [],
-    idsD.length ? sbGet("fertirrigacion", "preparaciones?id_deposito=in.(" + idsD.join(",") + ")&fecha=gte." + desde + "&select=*,preparaciones_lineas(*)&order=fecha") : []
+    idsD.length ? sbGet("fertirrigacion", "preparaciones?id_deposito=in.(" + idsD.join(",") + ")&fecha=gte." + desde + "&select=*,preparaciones_lineas(*)&order=fecha") : [],
+    idsD.length ? sbGet("fertirrigacion", "niveles_deposito?id_deposito=in.(" + idsD.join(",") + ")&fecha=gte." + desde + "&order=fecha") : []
   ]);
   S.m.cabezales = cabezales; S.m.depositos = depositos; S.m.valvulas = valvulas; S.m.productos = productos;
   S.m.productosFinca = productosFinca; S.m.vparcelas = vparcelas;
@@ -1391,7 +1447,7 @@ async function descargarDatosFinca(){
   if(!idsC.includes(S.cabezalId)) S.cabezalId = idsC[0];
   if(S.personaId && !persona(S.personaId)) S.personaId = null;
   if(!S.personaId && S.m.personas.length === 1) S.personaId = S.m.personas[0].id_persona;
-  await fusionarServidor(lecturas, preparaciones, idsV, idsD, desde);
+  await fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, niveles);
   S.descarga = {cuando: new Date().toISOString(), demo: false, lecturas: lecturas.length, cargas: preparaciones.length};
   await guardarMaestros(); await guardarEstado();
 }
@@ -1412,11 +1468,11 @@ function convertirPoligonos(filas){
   return out;
 }
 
-async function fusionarServidor(lecturas, preparaciones, idsV, idsD, desde){
+async function fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, niveles){
   const locales = new Map(S.reg.map(r => [r.id, r]));
   const fuera = S.reg.filter(r => r.estado === "subido" && (
     (r.tipo === "lectura" && idsV.includes(r.id_valvula) && r.fecha >= desde) ||
-    (r.tipo === "carga" && idsD.includes(r.id_deposito) && diaDeTimestamp(r.fecha) >= desde)));
+    ((r.tipo === "carga" || r.tipo === "nivel") && idsD.includes(r.id_deposito) && diaDeTimestamp(r.fecha) >= desde)));
   for(const r of fuera){ await regDel(r.id); }
   const quitar = new Set(fuera.map(r => r.id));
   let nuevos = [];
@@ -1445,6 +1501,11 @@ async function fusionarServidor(lecturas, preparaciones, idsV, idsD, desde){
       lineas: (p.preparaciones_lineas || []).map(x => ({id_producto: x.id_producto, cantidad: Number(x.cantidad), unidad: x.unidad})),
       estado: "subido", origen: loc ? loc.origen : "servidor"
     });
+  });
+  (niveles || []).forEach(n => {
+    const loc = locales.get(n.id_nivel);
+    if(loc && loc.estado !== "subido") return;
+    nuevos.push({id: n.id_nivel, tipo: "nivel", id_deposito: n.id_deposito, fecha: n.fecha, nivel_l: Number(n.nivel_l), id_persona: n.id_persona, observaciones: n.observaciones, registrado: n.creado, estado: "subido", origen: loc ? loc.origen : "servidor"});
   });
   await regPutVarios(nuevos);
   const ids = new Set(nuevos.map(n => n.id));
@@ -1490,6 +1551,8 @@ async function subir(silencioso){
         await esperar(180);
       } else if(r.tipo === "lectura"){
         await sbUpsert("fertirrigacion", "lecturas_contador", [filaLectura(r)], "id_lectura");
+      } else if(r.tipo === "nivel"){
+        await sbUpsert("fertirrigacion", "niveles_deposito", [{id_nivel: r.id, id_deposito: r.id_deposito, fecha: r.fecha, nivel_l: r.nivel_l, id_persona: r.id_persona && !String(r.id_persona).startsWith("p-") ? r.id_persona : null, observaciones: r.observaciones}], "id_nivel");
       } else {
         await sbUpsert("fertirrigacion", "preparaciones", [filaCarga(r)], "id_preparacion");
         await sbDelete("fertirrigacion", "preparaciones_lineas", "id_preparacion=eq." + r.id);
@@ -1564,7 +1627,7 @@ async function pedirPIN(){
 
 function pintarCabecera(){
   const f = finca();
-  const titulos = {inicio: f ? f.nombre || f.codigo_finca : "Regadores", lista: "Leer contadores", lectura: "Leer contadores", tanques: "Cargar tanque", tanque: "Cargar tanque", admin: "Administración"};
+  const titulos = {inicio: f ? f.nombre || f.codigo_finca : "Regadores", lista: "Leer contadores", lectura: "Leer contadores", tanques: "Tanques", tanque: "Cargar tanque", nivel: "Lo que queda", admin: "Administración"};
   $("#cabTit").textContent = titulos[S.vista] || "Regadores";
   const p = persona(S.personaId);
   let sub = "";
@@ -1609,7 +1672,7 @@ function pintar(){
   pintarCabecera(); pintarPie();
   if(S.vista !== "lista" && S.vista !== "lectura") pararGPS();
   if(S.vista !== "lista" && S.mapa){ S.mapa.remove(); S.mapa = null; }
-  const vistas = {inicio: pintarInicio, lista: pintarLista, lectura: pintarLectura, tanques: pintarTanques, tanque: pintarTanque, admin: pintarAdmin};
+  const vistas = {inicio: pintarInicio, lista: pintarLista, lectura: pintarLectura, tanques: pintarTanques, tanque: pintarTanque, nivel: pintarNivel, admin: pintarAdmin};
   (vistas[S.vista] || pintarInicio)();
 }
 
@@ -1632,11 +1695,14 @@ function pintarInicio(){
   const falta = c.total - c.hechas;
   const textoC = c.total === 0 ? (valvulasEnParada().length ? "Riego en parada" : "Sin contadores configurados") : falta === 0 ? '<span class="cuenta">Todos apuntados hoy</span>' : '<span class="cuenta">Faltan ' + falta + " de " + c.total + "</span> hoy";
   const cargasHoy = S.reg.filter(r => r.tipo === "carga" && diaDeTimestamp(r.fecha) === h);
-  const textoT = cargasHoy.length ? '<span class="cuenta">' + (cargasHoy.length === 1 ? "1 carga hoy" : cargasHoy.length + " cargas hoy") + "</span>" : depositosActivos().length + " tanques";
+  const nDep = depositosActivos().length;
+  const textoT = cargasHoy.length ? '<span class="cuenta">' + (cargasHoy.length === 1 ? "1 carga hoy" : cargasHoy.length + " cargas hoy") + "</span>" : (nDep ? "Cargar o apuntar lo que queda" : "Sin tanques montados");
+  const nov = S.novedades || [];
   app.innerHTML =
+    (nov.length ? '<div class="novedades"><div><b>Hay novedades en la finca</b><span>' + esc(nov[0].texto) + (nov.length > 1 ? " y " + (nov.length - 1) + " más" : "") + '</span></div><button onclick="verNovedades()">Ver</button></div>' : "") +
     '<div class="inicio">' +
       '<button class="tarea ' + (falta === 0 && c.total ? "hecho" : "") + '" onclick="abrirLista()">' + ICONO_CONTADOR + "<div><b>Leer contadores</b><span>" + textoC + "</span></div></button>" +
-      '<button class="tarea ' + (cargasHoy.length ? "hecho" : "") + '" onclick="abrirTanques()">' + ICONO_TANQUE + "<div><b>Cargar tanque</b><span>" + textoT + "</span></div></button>" +
+      '<button class="tarea ' + (cargasHoy.length ? "hecho" : "") + '" onclick="abrirTanques()">' + ICONO_TANQUE + "<div><b>Tanques</b><span>" + textoT + "</span></div></button>" +
     "</div>" +
     (!navigator.onLine ? '<div class="nota-inicio">Sin red: lo que apuntes se guarda en el móvil y se sube cuando vuelva la conexión.</div>' : "");
 }
@@ -1760,6 +1826,12 @@ function moverYo(){
   const ll = [S.gps.lat, S.gps.lon];
   if(!marcaYo) marcaYo = L.marker(ll, {icon: L.divIcon({className: "", html: '<div class="mapa-yo"></div>', iconSize: [18, 18], iconAnchor: [9, 9]}), interactive: false}).addTo(S.mapa);
   else marcaYo.setLatLng(ll);
+}
+
+async function verNovedades(){
+  const nov = S.novedades || [];
+  await hoja({titulo: "Novedades en la finca", msg: nov.map(n => "<p style='margin:0 0 8px'>" + esc(n.texto) + "</p>").join(""), opciones: [{t: "Entendido", v: "ok", c: "ok"}]});
+  S.novedades = []; await kvSet("novedades", []); pintar();
 }
 function abrirLectura(idV, desdeAdmin, fecha){
   if(fecha) S.fecha = fecha;
@@ -2009,22 +2081,94 @@ function unidadProducto(p){ return p && p.estado === "liquido" ? "L" : "kg"; }
 function textoCantidad(l){ return fmtAuto(l.cantidad) + " " + l.unidad; }
 function usaSacos(idP){ const pr = producto(idP), pf = productoFinca(idP); return !!(pr && pr.estado === "solido" && pf && pf.envase_kg); }
 
+function dibujoTanque(d, grande){
+  const pt = partesTanque(d);
+  const est = estadoNivel(d);
+  const cap = Number(d.capacidad_l);
+  const pct = est ? Math.max(0, Math.min(100, est.litros / cap * 100)) : 0;
+  const prods = productosActuales(d);
+  const color = colorProducto(prods[0]);
+  return '<span class="tq-num">' + esc(pt.corto) + '</span><span class="tq-cuerpo' + (grande ? " grande" : "") + '"><i style="height:' + pct.toFixed(0) + "%;background:" + color + '"></i><span class="tq-litros">' + (est ? "≈ " + fmt(est.litros) + " L" : "¿?") + "</span></span>";
+}
 function pintarTanques(){
   const app = $("#app");
   const deps = depositosActivos();
   let html = tiraDias() + avisoFecha();
-  html += '<div class="tanques">';
+  if(deps.length) html += '<div class="etq">Toca un tanque para cargarlo o apuntar lo que queda</div>';
+  html += '<div class="tanques-dib">';
   deps.forEach(d => {
-    const pt = partesTanque(d), pr = producto(d.id_producto);
-    const cs = cargasDe(d.id_deposito);
-    const delDia = cs.filter(c => diaDeTimestamp(c.fecha) === S.fecha);
-    const ult = cs[0];
-    const estado = delDia.length ? "Cargado " + etiquetaDia(S.fecha) + ": " + delDia.map(c => c.lineas.map(textoCantidad).join(" + ")).join(", ") : ult ? "Última carga: " + etiquetaDia(diaDeTimestamp(ult.fecha)) : "Sin cargas";
-    html += '<button class="tq ' + (delDia.length ? "cargado" : "") + '" onclick="abrirTanque(\'' + d.id_deposito + '\')"><span class="insignia tanque ' + tamInsignia(pt.corto) + '">' + esc(pt.corto) + "</span><b>" + esc(pr ? pr.nombre : pt.largo) + "</b><span>" + fmt(d.capacidad_l) + " L</span><span>" + esc(estado) + "</span></button>";
+    const est = estadoNivel(d);
+    const delDia = cargasDe(d.id_deposito).some(c => diaDeTimestamp(c.fecha) === S.fecha) || nivelesDe(d.id_deposito).some(n => diaDeTimestamp(n.fecha) === S.fecha);
+    const cuando = est ? (est.tipo === "carga" ? "Cargado " : "Mirado ") + etiquetaDia(diaDeTimestamp(est.fecha)) : "Sin datos";
+    html += '<button class="tq-dib ' + (delDia ? "hecho" : "") + '" onclick="tocarTanque(\'' + d.id_deposito + '\')">' + dibujoTanque(d) +
+      "<b>" + esc(nombreContenido(d)) + "</b><small>" + fmt(d.capacidad_l) + " L</small><small>" + esc(cuando) + "</small></button>";
   });
   html += "</div>";
-  if(!deps.length) html += '<div class="vacio">No hay tanques dados de alta en este cabezal. Se añaden en Administración, Configuración.</div>';
+  if(!deps.length) html += '<div class="vacio">No hay tanques dados de alta en este cabezal. Se montan una vez en Administración, Configuración.</div>';
   app.innerHTML = html;
+}
+async function tocarTanque(idD){
+  const d = deposito(idD), est = estadoNivel(d), pt = partesTanque(d);
+  const msg = (productosActuales(d).length ? "Lleva <b>" + esc(nombreContenido(d)) + "</b>." : "Aún no tiene producto: se lo pone la primera carga.") + (est ? "<br>Unos " + fmt(est.litros) + " L (" + (est.tipo === "carga" ? "cargado " : "mirado ") + esc(etiquetaDia(diaDeTimestamp(est.fecha))) + ")." : "");
+  const v = await hoja({titulo: "Tanque " + pt.corto, msg, opciones: [{t: "Cargar el tanque", v: "carga", c: "ok"}, {t: "Apuntar lo que queda", v: "nivel"}, {t: "Volver", v: null, c: "gris"}]});
+  if(v === "carga") abrirTanque(idD);
+  if(v === "nivel") abrirNivel(idD);
+}
+
+function abrirNivel(idD){ S.edN = {idD, litros: null}; ir("nivel"); }
+function pintarNivel(){
+  const e = S.edN, d = deposito(e.idD);
+  if(!d){ volver(); return; }
+  const pt = partesTanque(d), est = estadoNivel(d), cap = Number(d.capacidad_l);
+  let html = "";
+  if(S.fecha !== hoy()) html += '<div class="aviso-fecha">Nivel de ' + etiquetaDiaLarga(S.fecha) + "</div>";
+  html += '<div class="nivel-cab"><div class="tq-dib solo">' + dibujoTanque(d, true) + '</div><div><b>Tanque ' + esc(pt.corto) + "</b><span>" + esc(nombreContenido(d)) + "</span><span>" + fmt(cap) + " L</span>" + (est ? "<span>Última vez: " + fmt(est.litros) + " L, " + esc(etiquetaDia(diaDeTimestamp(est.fecha))) + (est.tipo === "carga" ? " (al cargar)" : "") + "</span>" : "") + "</div></div>";
+  html += '<div class="etq">¿Cuánto queda en el tanque?</div><div class="litros">';
+  const ops = [0].concat(opcionesLitros(cap));
+  ops.forEach(v => { html += '<button class="' + (e.litros === v ? "on" : "") + '" onclick="nivelLitros(' + v + ')">' + (v === 0 ? "Vacío" : fmt(v)) + "<small>" + (v === 0 ? "0 L" : v === cap ? "Lleno" : "litros") + "</small></button>"; });
+  const otro = e.litros != null && !ops.includes(e.litros);
+  html += '<button class="' + (otro ? "on" : "") + '" onclick="nivelOtro()">' + (otro ? fmt(e.litros) : "Otro") + "<small>" + (otro ? "litros" : "escribir") + "</small></button></div>";
+  if(e.litros != null && est){
+    const dif = est.litros - e.litros;
+    html += '<div class="resultado">' + (dif >= 0 ? "Ha bajado " + fmt(dif) + " L" : "Hay " + fmt(-dif) + " L más") + "<small>desde la última vez que se apuntó (" + esc(etiquetaDia(diaDeTimestamp(est.fecha))) + (est.tipo === "carga" ? ", al cargar" : "") + ")</small></div>";
+  }
+  html += '<button class="btn-guardar" onclick="guardarNivel()"' + (e.litros == null ? " disabled" : "") + ">Guardar</button>";
+  const hist = nivelesDe(d.id_deposito).slice(0, 6);
+  if(hist.length) html += '<div class="historial"><div class="etq">Lo que quedaba otros días</div>' + hist.map(n => "<div class='linea'><b>" + esc(etiquetaDia(diaDeTimestamp(n.fecha))) + "</b><span>" + fmt(n.nivel_l) + " L</span>" + (n.estado !== "subido" ? "<span>sin subir</span>" : "") + "</div>").join("") + "</div>";
+  $("#app").innerHTML = html;
+}
+function nivelLitros(v){ S.edN.litros = v; pintarNivel(); }
+async function nivelOtro(){
+  const d = deposito(S.edN.idD);
+  const v = await pedirNumero("¿Cuántos litros quedan?", "Lo que marca la escala del tanque (capacidad " + fmt(d.capacidad_l) + " L).", "");
+  if(v == null || v < 0) return;
+  S.edN.litros = Math.round(v); pintarNivel();
+}
+async function guardarNivel(){
+  const e = S.edN, d = deposito(e.idD), est = estadoNivel(d);
+  if(e.litros == null){ toast("Marca cuánto queda"); return; }
+  if(e.litros > Number(d.capacidad_l)){
+    const r = await hoja({titulo: "¿Seguro?", msg: "Has puesto " + fmt(e.litros) + " L y en el tanque caben " + fmt(d.capacidad_l) + " L.", opciones: [{t: "Sí, está bien", v: "ok", c: "ok"}, {t: "Corregir", v: null, c: "gris"}]});
+    if(r !== "ok") return;
+  }
+  if(est && e.litros > est.litros + 1){
+    const r = await hoja({titulo: "Hay más que la última vez", msg: "La última vez había " + fmt(est.litros) + " L. Si has cargado el tanque, apunta la carga.", opciones: [{t: "Apuntar la carga", v: "carga", c: "ok"}, {t: "No, está bien así", v: "ok"}, {t: "Corregir", v: null, c: "gris"}]});
+    if(!r) return;
+    if(r === "carga"){ abrirTanqueDesdeNivel(e.idD); return; }
+  }
+  const fecha = S.fecha === hoy() ? new Date().toISOString() : new Date(aFecha(S.fecha).getTime() + 12 * 3600000).toISOString();
+  const rec = {id: uuid(), tipo: "nivel", id_deposito: e.idD, fecha, nivel_l: e.litros, id_persona: S.personaId, observaciones: null, registrado: new Date().toISOString(), estado: "pendiente", origen: "movil", error: null};
+  await regPut(rec);
+  S.reg.push(rec);
+  toast("Apuntado: quedan " + fmt(e.litros) + " L");
+  if(navigator.onLine) subir(true);
+  volver();
+}
+function abrirTanqueDesdeNivel(idD){
+  const d = deposito(idD);
+  S.edT = {idD, existente: null, lineas: productosActuales(d).map(id => lineaNueva(id)), activa: 0, litros: Number(d.capacidad_l), litrosTexto: null};
+  if(!S.edT.lineas.length) S.edT.lineas = [lineaNueva(null)];
+  S.vista = "tanque"; history.replaceState({v: "tanque"}, ""); pintar();
 }
 
 function lineaNueva(idP, cantidad){
@@ -2040,7 +2184,8 @@ function lineaNueva(idP, cantidad){
 function abrirTanque(idD, idCarga){
   const d = deposito(idD);
   const ex = idCarga ? S.reg.find(r => r.id === idCarga) : null;
-  const lineas = ex ? ex.lineas.map(l => lineaNueva(l.id_producto, l.cantidad)) : [lineaNueva(d.id_producto)];
+  const actuales = productosActuales(d);
+  const lineas = ex ? ex.lineas.map(l => lineaNueva(l.id_producto, l.cantidad)) : (actuales.length ? actuales.map(id => lineaNueva(id)) : [lineaNueva(null)]);
   S.edT = {idD, existente: ex, lineas, activa: 0, litros: ex ? ex.volumen_final_l : Number(d.capacidad_l), litrosTexto: null};
   ir("tanque");
 }
@@ -2172,6 +2317,13 @@ async function guardarCarga(){
     lineas.push({id_producto: pr.id_producto, cantidad: cant, unidad: unidadProducto(pr)});
   }
   if(!lineas.length){ toast("Añade al menos un producto"); return; }
+  if(!e.existente){
+    const antes = productosActuales(d).slice().sort().join("|"), ahora = lineas.map(l => l.id_producto).sort().join("|");
+    if(antes && antes !== ahora){
+      const r = await hoja({titulo: "Cambio de producto", msg: "El tanque " + esc(partesTanque(d).corto) + " llevaba <b>" + esc(nombreContenido(d)) + "</b> y ahora vas a apuntar <b>" + esc(lineas.map(l => producto(l.id_producto).nombre).join(" + ")) + "</b>. ¿Es correcto?", opciones: [{t: "Sí, ha cambiado el producto", v: "ok", c: "ok"}, {t: "Corregir", v: null, c: "gris"}]});
+      if(r !== "ok") return;
+    }
+  }
   if(!e.litros || e.litros <= 0){ toast("Marca hasta cuántos litros lo has llenado"); return; }
   const avisos = [];
   if(e.litros > Number(d.capacidad_l)) avisos.push("Has puesto " + fmt(e.litros) + " L y en el tanque caben " + fmt(d.capacidad_l) + " L.");
@@ -2222,12 +2374,14 @@ function htmlEstadoDatos(){
   const ok = !!(f && dsc && valvulasActivas().length);
   let h = '<div class="estado-datos ' + (ok ? "ok" : "mal") + '"><b class="t">' + (ok ? "Este móvil tiene los datos de la finca" : "Este móvil aún no tiene los datos de la finca") + "</b>";
   h += "<div>Conexión: <b>" + (navigator.onLine ? "Online" : "Sin conexión") + "</b></div>";
-  h += "<div>Base de datos: <b>" + (S.modo === "demo" ? "sin configurar en el código (modo demostración, datos inventados)" : esc(SUPABASE_URL.replace(/^https?:\/\//, ""))) + "</b></div>";
+  h += "<div>Base de datos: <b>" + (S.modo === "demo" ? "sin configurar en el código (modo demostración, datos inventados)" : esc(S.conexion.url.replace(/^https?:\/\//, ""))) + "</b></div>";
   h += "<div>Finca: <b>" + (f ? esc((f.nombre || f.codigo_finca) + " (" + f.codigo_finca + ")") : "sin elegir") + "</b></div>";
   h += "<div>Última descarga: <b>" + (dsc ? new Date(dsc.cuando).toLocaleString("es-ES", {day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}) : "nunca") + "</b></div>";
   h += "<div>Contadores: <b>" + valvulasALeer().length + "</b> a leer" + (valvulasEnParada().length ? ", <b>" + valvulasEnParada().length + "</b> en parada" : "") + ". Tanques: <b>" + depositosActivos().length + "</b>. Parcelas con polígono: <b>" + new Set(S.m.poligonos.map(p => p.codigo_parcela)).size + "</b>.</div>";
   h += '<div>Mapa guardado sin conexión: <b id="nTeselas">…</b></div>';
-  h += "<div>Sin subir: <b>" + pendientes().length + "</b></div></div>";
+  h += "<div>Sin subir: <b>" + pendientes().length + "</b></div>";
+  if(S.ultimoError) h += '<div style="margin-top:6px;color:var(--rojo)">Último error de Campo (' + horaCorta(S.ultimoError.cuando) + "): " + esc(S.ultimoError.msg) + "</div>";
+  h += "</div>";
   setTimeout(() => teselasContar().then(n => { const el = $("#nTeselas"); if(el) el.textContent = n ? n + " imágenes" : "no"; }).catch(() => {}), 0);
   return h;
 }
@@ -2328,7 +2482,12 @@ function htmlConfig(){
       '<label class="campo">Producto habitual<select id="dp_' + id + '"><option value="">Ninguno</option>' + prods.map(p => '<option value="' + p.id_producto + '"' + (p.id_producto === d.id_producto ? " selected" : "") + ">" + esc(p.nombre) + "</option>").join("") + "</select></label>" +
       '<div class="botonera"><button class="btn" onclick="guardarDeposito(\'' + id + '\')">Guardar</button></div></div></details>';
   });
-  h += '<details class="conf"><summary><span class="insignia tanque">+</span><div><b>Añadir tanque</b><span>Un tanque nuevo en este cabezal</span></div></summary><div class="cuerpo">' +
+  const nTq = depositosCabezal().length;
+  h += '<div class="bloque"><h3>Montar los tanques</h3><p>' + (nTq ? "Este cabezal tiene " + nTq + " tanques. Puedes añadir más." : "Di cuántos tanques hay y de qué tamaño. Se crean numerados (T1, T2…); el producto lo pone el regador con la primera carga.") + "</p>" +
+    '<div class="etq">¿Cuántos tanques ' + (nTq ? "más" : "hay") + '?</div><div class="sacos"><button onclick="montarN(-1)" aria-label="Uno menos">−</button><div class="n"><b id="montarN">' + (S.montar ? S.montar.n : (nTq ? 1 : 5)) + '</b><span>tanques</span></div><button onclick="montarN(1)" aria-label="Uno más">+</button></div>' +
+    '<div class="etq">¿De cuántos litros?</div><div class="litros">' + [3000, 5000].map(v => '<button class="' + ((S.montar ? S.montar.cap : 3000) === v ? "on" : "") + '" onclick="montarCap(' + v + ')">' + fmt(v) + "<small>litros</small></button>").join("") + '<button class="' + (S.montar && ![3000, 5000].includes(S.montar.cap) ? "on" : "") + '" onclick="montarCapOtra()">' + (S.montar && ![3000, 5000].includes(S.montar.cap) ? fmt(S.montar.cap) : "Otra") + "<small>" + (S.montar && ![3000, 5000].includes(S.montar.cap) ? "litros" : "escribir") + "</small></button></div>" +
+    '<div class="botonera"><button class="btn" onclick="montarTanques()">Crear los tanques</button></div><p>Si alguno es de otro tamaño, se cambia después tocándolo en la lista.</p></div>';
+  h += '<details class="conf"><summary><span class="insignia tanque">+</span><div><b>Añadir un tanque concreto</b><span>Con nombre, tamaño y producto</span></div></summary><div class="cuerpo">' +
     '<div class="fila-campos"><label class="campo">Nombre<input id="nt_nombre" placeholder="Ej.: T1 · Nitrato potásico"></label><label class="campo">Capacidad (L)<input id="nt_cap" inputmode="numeric" value="3000"></label></div>' +
     '<label class="campo">Contenido<select id="nt_tipo"><option value="solucion_madre">Solución madre (producto disuelto)</option><option value="producto_puro">Producto puro</option></select></label>' +
     '<label class="campo">Producto habitual<select id="nt_prod"><option value="">Ninguno</option>' + prods.map(p => '<option value="' + p.id_producto + '">' + esc(p.nombre) + "</option>").join("") + "</select></label>" +
@@ -2437,6 +2596,26 @@ async function altaValvula(){
   }
   S.m.valvulas.push(fila); S.m.vparcelas.push(...vp);
   await guardarMaestros(); toast("Contador dado de alta"); pintarAdmin();
+}
+function montarEstado(){ if(!S.montar) S.montar = {n: depositosCabezal().length ? 1 : 5, cap: 3000}; return S.montar; }
+function montarN(d){ const m = montarEstado(); m.n = Math.max(1, Math.min(12, m.n + d)); pintarAdmin(); }
+function montarCap(v){ montarEstado().cap = v; pintarAdmin(); }
+async function montarCapOtra(){ const v = await pedirNumero("Capacidad del tanque (L)", "Litros que caben en cada tanque.", ""); if(v && v > 0){ montarEstado().cap = Math.round(v); pintarAdmin(); } }
+async function montarTanques(){
+  const m = montarEstado();
+  const usados = depositosCabezal().map(d => { const x = String(d.nombre).match(/^T(\d+)/i); return x ? Number(x[1]) : 0; });
+  let k = Math.max(0, ...usados);
+  const filas = [];
+  for(let i = 0; i < m.n; i++){ k++; filas.push({id_deposito: uuid(), id_cabezal: S.cabezalId, nombre: "T" + k, capacidad_l: m.cap, tipo: "solucion_madre", activo: true, id_producto: null}); }
+  const ok = await hoja({titulo: "Crear tanques", msg: "Se crean " + filas.map(f => f.nombre).join(", ") + ", de " + fmt(m.cap) + " L cada uno.", opciones: [{t: "Crear", v: "ok", c: "ok"}, {t: "Volver", v: null, c: "gris"}]});
+  if(ok !== "ok") return;
+  if(S.modo === "campo"){
+    if(!navigator.onLine){ toast("Necesitas conexión para cambiar la configuración"); return; }
+    try{ await sbInsert("fertirrigacion", "depositos", filas); }
+    catch(e){ await hoja({titulo: "No se pudieron crear", msg: esc(e.message), opciones: [{t: "Entendido", v: null, c: "gris"}]}); return; }
+  }
+  S.m.depositos.push(...filas); S.montar = null;
+  await guardarMaestros(); toast(filas.length === 1 ? "Tanque creado" : filas.length + " tanques creados"); pintarAdmin();
 }
 async function altaDeposito(){
   const nombre = $("#nt_nombre").value.trim();
@@ -2617,6 +2796,8 @@ function exportarExcel(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lect), "Lecturas");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(carg), "Cargas");
+  const niv = S.reg.filter(r => r.tipo === "nivel").sort((a, b) => a.fecha < b.fecha ? -1 : 1).map(r => ({Fecha: diaDeTimestamp(r.fecha), Hora: horaCorta(r.fecha), Tanque: (deposito(r.id_deposito) || {}).nombre, Quedan_L: r.nivel_l, Subida: r.estado === "subido" ? "Sí" : "No"}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(niv), "Niveles");
   XLSX.writeFile(wb, "Regadores_" + (S.fincaCod || "finca") + "_" + hoy() + ".xlsx");
 }
 async function reiniciarDemo(){
@@ -2742,13 +2923,64 @@ async function arrancar(){
     $("#app").innerHTML = '<div class="bloque"><h3>No se puede guardar en este navegador</h3><p>' + esc(e.message || e) + "</p></div>";
     return;
   }
+  S.novedades = (await kvGet("novedades").catch(() => [])) || [];
   S.fecha = hoy();
   history.replaceState({v: "inicio"}, "");
   pintar();
+  setTimeout(() => refrescarFinca(), 1200);
   if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if(navigator.onLine) setTimeout(() => subir(true), 1500);
 }
-window.addEventListener("online", () => { pintarCabecera(); pintarPie(); if(S.vista === "inicio") pintar(); subir(true); });
+window.addEventListener("online", () => { pintarCabecera(); pintarPie(); if(S.vista === "inicio") pintar(); subir(true); refrescarFinca(); });
+function firmaConfig(){
+  const t = {}, c = {};
+  depositosCabezal().forEach(d => { t[d.id_deposito] = {nombre: partesTanque(d).corto, cap: Number(d.capacidad_l), activo: !!d.activo, prod: nombreContenido(d)}; });
+  valvulasCabezal().forEach(v => { c[v.id_valvula] = {nombre: nombreContador(v), activo: !!v.activo, parada: !!v.en_parada}; });
+  return {t, c, hab: productosHabituales().map(p => p.nombre).sort()};
+}
+function diferencias(a, b){
+  const out = [];
+  Object.keys(b.t).forEach(id => {
+    const x = a.t[id], y = b.t[id];
+    if(!x) out.push("Nuevo tanque " + y.nombre + " de " + fmt(y.cap) + " L");
+    else {
+      if(x.prod !== y.prod) out.push("El tanque " + y.nombre + " ahora lleva " + y.prod + (x.prod === "Sin producto" ? "" : " (antes " + x.prod + ")"));
+      if(x.cap !== y.cap) out.push("El tanque " + y.nombre + " es ahora de " + fmt(y.cap) + " L");
+      if(x.activo !== y.activo) out.push("El tanque " + y.nombre + (y.activo ? " vuelve a estar en uso" : " se ha dado de baja"));
+    }
+  });
+  Object.keys(b.c).forEach(id => {
+    const x = a.c[id], y = b.c[id];
+    if(!x) out.push("Nuevo contador: " + y.nombre);
+    else {
+      if(x.parada !== y.parada) out.push(y.nombre + (y.parada ? " pasa a parada" : " vuelve a leerse cada día"));
+      if(x.activo !== y.activo) out.push(y.nombre + (y.activo ? " vuelve a estar en uso" : " se ha dado de baja"));
+    }
+  });
+  const nuevosHab = b.hab.filter(n => !a.hab.includes(n));
+  if(nuevosHab.length) out.push("Productos nuevos en la finca: " + nuevosHab.join(", "));
+  return out;
+}
+let refrescando = false, ultimoRefresco = 0;
+async function refrescarFinca(){
+  if(S.modo !== "campo" || !S.fincaCod || !navigator.onLine || refrescando || subiendo) return;
+  if(Date.now() - ultimoRefresco < 5 * 60000) return;
+  refrescando = true;
+  try{
+    if(pendientes().length) await subir(true);
+    const antes = firmaConfig();
+    await descargarDatosFinca();
+    ultimoRefresco = Date.now();
+    const cambios = diferencias(antes, firmaConfig());
+    if(cambios.length){
+      const cuando = new Date().toISOString();
+      S.novedades = (S.novedades || []).concat(cambios.map(texto => ({texto, cuando}))).slice(-20);
+      await kvSet("novedades", S.novedades);
+    }
+    if(["inicio", "lista", "tanques"].includes(S.vista)) pintar();
+  }catch(e){}
+  refrescando = false;
+}
 window.addEventListener("offline", () => { pintarCabecera(); pintarPie(); if(S.vista === "inicio") pintar(); });
 document.addEventListener("visibilitychange", () => {
   if(document.visibilityState === "visible" && S.fecha !== hoy() && S.vista === "inicio"){ S.fecha = hoy(); pintar(); }
