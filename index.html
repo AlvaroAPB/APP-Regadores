@@ -1117,6 +1117,9 @@ td.mal{color:var(--rojo);font-weight:700}
 .rec-v{font-family:var(--letra-cifra);font-weight:700;font-size:20px!important;color:var(--tinta)!important}
 .gf-quitar{grid-column:1/-1;justify-self:end;border:none;background:none;color:var(--tinta-2);font-size:13px;text-decoration:underline;padding:0 2px}
 .nivel button span{display:block;font-size:13px;font-weight:500;color:var(--tinta-2)}
+.envio.gris{background:var(--superficie-2);border-color:var(--tinta-2)}
+.envio.gris b{color:var(--tinta)}
+.envio.gris button{background:var(--agua)}
 .oculto{display:none!important}
 @media (min-width:600px){ main{padding-top:18px} }
 </style>
@@ -1147,7 +1150,7 @@ td.mal{color:var(--rojo);font-weight:700}
 const SUPABASE_URL = "https://utdcfnqnusfzlkorduct.supabase.co";
 const SUPABASE_KEY = "sb_publishable_L9mMlb6BEHzSnj9lyN-JeA_tzASFAqa";
 
-const VERSION = "r11b";
+const VERSION = "r12c";
 const PIN_ADMIN = "2468";
 const SUPABASE_BASE = String(SUPABASE_URL).trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
 const CONEXION_CONFIGURADA = /^https?:\/\/[^ ]+$/.test(SUPABASE_URL) && !!SUPABASE_KEY && !SUPABASE_KEY.startsWith("PEGAR");
@@ -1401,11 +1404,25 @@ function ultimoTeoricoAbonado(idP, antesDe){
 function diaAnteriorRiego(d){ let x = sumarDias(d, -1); if(diaSemana(x) === 0) x = sumarDias(x, -1); return x; }
 function diaSiguienteRiego(d){ let x = sumarDias(d, 1); if(diaSemana(x) === 0) x = sumarDias(x, 1); return x; }
 function tieneGasto(idP, d){ const a = abonadoDe(idP, d); return !!(a && a.gasto_real_l != null); }
+function paradasCab(){ return S.reg.filter(r => r.tipo === "parada" && r.id_cabezal === S.cabezalId && !r.anulada); }
+function paradaEn(f, tipo){ return paradasCab().find(p => (p.tipo_parada === tipo || p.tipo_parada === "riego") && p.desde <= f && (!p.hasta || f < p.hasta)) || null; }
+function paradaAbierta(tipo){ return paradasCab().find(p => p.tipo_parada === tipo && !p.hasta) || null; }
+function riegoParado(f){ return paradasCab().some(p => p.tipo_parada === "riego" && p.desde <= f && (!p.hasta || f < p.hasta)); }
+function abonadoParado(f){ return !!paradaEn(f, "abonado"); }
+function textoParada(p){ return (p.tipo_parada === "riego" ? "Riego parado" : "Abonado parado") + " desde " + etiquetaDiaLarga(p.desde).replace(/^el /, "el ") + (p.motivo ? " (" + p.motivo.toLowerCase() + ")" : ""); }
+function parteDe(idP){
+  const pt = S.m.parte; if(!pt || !pt.partes_depositos) return null;
+  const ls = pt.partes_depositos.filter(l => l.id_producto === idP);
+  if(!ls.length) return null;
+  const num = v => v == null ? null : Number(v);
+  const suma = k => ls.every(l => l[k] != null) ? ls.reduce((a, l) => a + Number(l[k]), 0) : null;
+  return {concentracion_kg_1000l: num(ls[0].concentracion_kg_1000l), velocidad_l_m3: num(ls[0].velocidad_l_m3), capacidad_l: suma("capacidad_l"), cantidad: suma("cantidad"), unidad: ls[0].unidad, tanques: ls.length};
+}
 function huecosAbonado(){
   const out = [];
   for(let i = 2; i <= 8; i++){
     const d = sumarDias(hoy(), -i);
-    if(diaSemana(d) === 0) continue;
+    if(diaSemana(d) === 0 || abonadoParado(d)) continue;
     const ant = diaAnteriorRiego(d), sig = diaSiguienteRiego(d);
     if(sig >= hoy()) continue;
     const prods = productosHabituales().filter(p => !tieneGasto(p.id_producto, d) && tieneGasto(p.id_producto, ant) && tieneGasto(p.id_producto, sig));
@@ -1466,7 +1483,7 @@ function faltanDias(){
   if(!act.length) return out;
   for(let i = 1; i <= 7; i++){
     const d = sumarDias(hoy(), -i);
-    if(diaSemana(d) === 0) continue;
+    if(diaSemana(d) === 0 || riegoParado(d)) continue;
     const n = act.filter(v => !lecturaDelDia(v.id_valvula, d)).length;
     if(n && n < act.length) out.push({d, n});
     else if(n === act.length && i > 1) out.push({d, n});
@@ -1496,7 +1513,7 @@ function colorProducto(id){
   let h = 0; for(const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return COLORES_PRODUCTO[h % COLORES_PRODUCTO.length];
 }
-const NOMBRES_TIPO = {lectura: ["lectura", "lecturas"], abonado: ["apunte de abonado", "apuntes de abonado"], recuento: ["recuento", "recuentos"], entrada: ["entrada de producto", "entradas de producto"], valvula: ["aplicación en válvula", "aplicaciones en válvula"], traspaso: ["préstamo", "préstamos"], carga: ["carga de tanque", "cargas de tanque"], nivel: ["nivel de tanque", "niveles de tanque"]};
+const NOMBRES_TIPO = {parada: ["parada o reanudación", "paradas o reanudaciones"], lectura: ["lectura", "lecturas"], abonado: ["apunte de abonado", "apuntes de abonado"], recuento: ["recuento", "recuentos"], entrada: ["entrada de producto", "entradas de producto"], valvula: ["aplicación en válvula", "aplicaciones en válvula"], traspaso: ["préstamo", "préstamos"], carga: ["carga de tanque", "cargas de tanque"], nivel: ["nivel de tanque", "niveles de tanque"]};
 function resumenRegistros(lista){
   const n = {};
   lista.forEach(r => { n[r.tipo] = (n[r.tipo] || 0) + 1; });
@@ -1685,6 +1702,12 @@ async function descargarDatosFinca(){
   S.tablasFaltan = [];
   const idsCab = cabezales.map(c => c.id_cabezal);
   S.m.stock = await opcional(sbGet("fertirrigacion", "v_stock_finca?codigo_finca=eq." + enc(f)));
+  const hoyD = hoy();
+  const partes = await sbGet("fertirrigacion", "partes?select=*&id_cabezal=in.(" + idsCab.join(",") + ")&estado=eq.aprobado&desde=lte." + hoyD + "&or=(hasta.is.null,hasta.gte." + hoyD + ")&order=desde.desc&limit=1").catch(() => []);
+  S.m.parte = partes && partes.length ? partes[0] : null;
+  if(S.m.parte) S.m.parte.partes_depositos = await sbGet("fertirrigacion", "partes_depositos?select=*&id_parte=eq." + S.m.parte.id_parte).catch(() => []);
+  if(S.m.parte && !(S.m.parte.partes_depositos || []).length) S.m.parte = null;
+  const paradas = await opcional(sbGet("fertirrigacion", "paradas?id_cabezal=in.(" + idsCab.join(",") + ")&or=(hasta.is.null,hasta.gte." + sumarDias(hoyD, -DIAS_HISTORIAL) + ")&order=desde"));
   const [abonado, entradas, aplicaciones, traspasos] = await Promise.all([
     opcional(sbGet("fertirrigacion", "abonado_diario?id_cabezal=in.(" + idsCab.join(",") + ")&fecha=gte." + desde + "&order=fecha")),
     opcional(sbGet("fertirrigacion", "compras?select=id_compra,fecha,codigo_finca,id_producto,cantidad,unidad,id_persona,observaciones,registrado&codigo_finca=eq." + enc(f) + "&fecha=gte." + desde + "&order=fecha")),
@@ -1704,7 +1727,7 @@ async function descargarDatosFinca(){
   if(!idsC.includes(S.cabezalId)) S.cabezalId = idsC[0];
   if(S.personaId && !persona(S.personaId)) S.personaId = null;
   if(!S.personaId && S.m.personas.length === 1) S.personaId = S.m.personas[0].id_persona;
-  await fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, niveles, {abonado, entradas, aplicaciones, traspasos, idsCab, finca: f});
+  await fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, niveles, {abonado, entradas, aplicaciones, traspasos, paradas, idsCab, finca: f});
   S.descarga = {cuando: new Date().toISOString(), demo: false, lecturas: lecturas.length, cargas: preparaciones.length};
   await guardarMaestros(); await guardarEstado();
 }
@@ -1732,6 +1755,7 @@ async function fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, nive
     (r.tipo === "lectura" && idsV.includes(r.id_valvula) && r.fecha >= desde) ||
     ((r.tipo === "carga" || r.tipo === "nivel") && idsD.includes(r.id_deposito) && diaDeTimestamp(r.fecha) >= desde) ||
     (r.tipo === "abonado" && ab.idsCab.includes(r.id_cabezal) && r.fecha >= desde) ||
+    (r.tipo === "parada" && ab.idsCab.includes(r.id_cabezal)) ||
     ((r.tipo === "entrada" || r.tipo === "traspaso") && r.codigo_finca === ab.finca && r.fecha >= desde) ||
     (r.tipo === "valvula" && idsV.includes(r.id_valvula) && r.fecha >= desde)));
   for(const r of fuera){ await regDel(r.id); }
@@ -1774,6 +1798,7 @@ async function fusionarServidor(lecturas, preparaciones, idsV, idsD, desde, nive
   });
   ab.entradas.forEach(c => { if(yaLocal(c.id_compra)) return; nuevos.push({id: c.id_compra, tipo: "entrada", fecha: c.fecha, codigo_finca: c.codigo_finca, id_producto: c.id_producto, cantidad: num(c.cantidad), unidad: c.unidad, id_persona: c.id_persona, observaciones: c.observaciones, registrado: c.registrado, estado: "subido", origen: "servidor"}); });
   ab.aplicaciones.forEach(c => { if(yaLocal(c.id_complemento)) return; nuevos.push({id: c.id_complemento, tipo: "valvula", fecha: c.fecha, id_valvula: c.id_valvula, codigo_parcela: c.codigo_parcela, id_producto: c.id_producto, cantidad: num(c.cantidad), unidad: c.unidad, metodo: c.metodo, id_persona: c.id_persona, observaciones: c.observaciones, registrado: c.registrado, estado: "subido", origen: "servidor"}); });
+  (ab.paradas || []).forEach(t => { if(yaLocal(t.id_parada)) return; nuevos.push({id: t.id_parada, tipo: "parada", id_cabezal: t.id_cabezal, tipo_parada: t.tipo, desde: t.desde, hasta: t.hasta, motivo: t.motivo, id_persona: t.id_persona, registrado: t.registrado, estado: "subido", origen: "servidor"}); });
   ab.traspasos.forEach(t => { if(yaLocal(t.id_traspaso)) return; nuevos.push({id: t.id_traspaso, tipo: "traspaso", fecha: t.fecha, codigo_finca: t.codigo_finca, codigo_finca_destino: t.codigo_finca_destino, destino: t.destino, id_producto: t.id_producto, cantidad: num(t.cantidad), unidad: t.unidad, id_persona: t.id_persona, observaciones: t.observaciones, registrado: t.registrado, estado: "subido", origen: "servidor"}); });
   (niveles || []).forEach(n => {
     const loc = locales.get(n.id_nivel);
@@ -1844,6 +1869,10 @@ async function subir(silencioso, motivo){
         await sbUpsert("fertirrigacion", "complementos", [filaValvula(r)], "id_complemento");
       } else if(r.tipo === "traspaso"){
         await sbUpsert("fertirrigacion", "traspasos", [filaTraspaso(r)], "id_traspaso");
+      } else if(r.tipo === "parada" && r.anulada){
+        await sbDelete("fertirrigacion", "paradas", "id_parada=eq." + r.id);
+      } else if(r.tipo === "parada"){
+        await sbUpsert("fertirrigacion", "paradas", [{id_parada: r.id, id_cabezal: r.id_cabezal, tipo: r.tipo_parada, desde: r.desde, hasta: r.hasta, motivo: r.motivo, id_persona: personaReal(r.id_persona), registrado: r.registrado}], "id_parada");
       } else if(r.tipo === "recuento"){
         await sbUpsert("fertirrigacion", "recuentos", [{id_recuento: r.id, fecha: r.fecha, codigo_finca: r.codigo_finca, id_producto: r.id_producto, cantidad: r.cantidad, unidad: r.unidad, id_persona: personaReal(r.id_persona), observaciones: r.observaciones, registrado: r.registrado}], "id_recuento");
       } else if(r.tipo === "nivel"){
@@ -1984,6 +2013,7 @@ const ICONO_VALVULA = '<svg viewBox="0 0 72 72" aria-hidden="true" fill="none" s
 const ICONO_TANQUE = '<svg viewBox="0 0 72 72" aria-hidden="true"><ellipse cx="36" cy="14" rx="22" ry="7" fill="var(--agua-suave)" stroke="var(--agua)" stroke-width="4"/><path d="M14 14v42c0 4 10 7 22 7s22-3 22-7V14" fill="var(--agua-suave)" stroke="var(--agua)" stroke-width="4"/><path d="M14 36c0 4 10 7 22 7s22-3 22-7v20c0 4-10 7-22 7s-22-3-22-7z" fill="var(--agua)" opacity=".85"/></svg>';
 
 function hechasDelDia(f){
+  if(riegoParado(f)) return {total: 0, hechas: 0, parado: true};
   const act = valvulasALeer();
   const hechas = act.filter(v => lecturaDelDia(v.id_valvula, f));
   return {total: act.length, hechas: hechas.length};
@@ -2001,7 +2031,7 @@ function pintarInicio(){
   }
   const a = ayer(), c = hechasDelDia(a);
   const falta = c.total - c.hechas;
-  const textoC = c.total === 0 ? (valvulasEnParada().length ? "Riego en parada" : "Sin contadores configurados") : "Riego de ayer (" + DSEM[diaSemana(a)] + " " + Number(a.slice(8)) + "): " + (falta === 0 ? '<span class="cuenta">todos apuntados</span>' : '<span class="cuenta">faltan ' + falta + " de " + c.total + "</span>");
+  const textoC = c.parado ? "Riego parado: no hace falta leer" : c.total === 0 ? (valvulasEnParada().length ? "Riego en parada" : "Sin contadores configurados") : "Riego de ayer (" + DSEM[diaSemana(a)] + " " + Number(a.slice(8)) + "): " + (falta === 0 ? '<span class="cuenta">todos apuntados</span>' : '<span class="cuenta">faltan ' + falta + " de " + c.total + "</span>");
   const pend = pendientes(), antiguos = pendientesAntiguos();
   const huecos = faltanDias().filter(x => x.d !== a);
   const nov = S.novedades || [];
@@ -2018,9 +2048,13 @@ function pintarInicio(){
   if(nov.length) html += '<div class="novedades"><div><b>Hay novedades en la finca</b><span>' + esc(nov[0].texto) + (nov.length > 1 ? " y " + (nov.length - 1) + " más" : "") + '</span></div><button onclick="verNovedades()">Ver</button></div>';
   html += '<div class="seccion-tit">Contadores</div><div class="inicio">' +
     '<button class="tarea ' + (falta === 0 && c.total ? "hecho" : "") + '" onclick="abrirLista()">' + ICONO_CONTADOR + "<div><b>Leer contadores</b><span>" + textoC + "</span></div></button></div>";
-  const enUso = filasGasto(), faltaG = enUso.filter(f => !tieneGasto(f.productos[0].id_producto, a)).length;
+  const abParado = abonadoParado(a);
+  const enUso = abParado ? [] : filasGasto(), faltaG = enUso.filter(f => !tieneGasto(f.productos[0].id_producto, a)).length;
   html += '<div class="seccion-tit">Abonado</div><div class="inicio"><button class="tarea ' + (enUso.length && !faltaG ? "hecho" : "") + '" onclick="abrirAbonado()">' + ICONO_TANQUE + "<div><b>Abonado</b><span>" +
-    (enUso.length ? "Gasto de ayer: " + (faltaG ? '<span class="cuenta">faltan ' + faltaG + " de " + enUso.length + "</span>" : '<span class="cuenta">todo apuntado</span>') : "Sin productos en la finca") + "<br>Entradas, tanques y válvulas</span></div></button></div>";
+    (abParado ? "Abonado parado: no hace falta medir" : enUso.length ? "Gasto de ayer: " + (faltaG ? '<span class="cuenta">faltan ' + faltaG + " de " + enUso.length + "</span>" : '<span class="cuenta">todo apuntado</span>') : "Sin productos en la finca") + "<br>Entradas, tanques y válvulas</span></div></button></div>";
+  const pR = paradaAbierta("riego"), pA = paradaAbierta("abonado");
+  if(pR || pA) html = '<div class="envio gris"><div><b>' + esc(textoParada(pR || pA)) + "</b><span>" + (pR ? "No se piden lecturas ni gasto de abonado." : "No se pide el gasto de abonado; los contadores sí.") + '</span></div><button onclick="reanudar(\'' + (pR ? "riego" : "abonado") + '\')">Reanudar</button></div>' + html;
+  else html += '<div style="text-align:center;margin-top:14px"><button class="enlace" onclick="pararRiego()">¿Se para el riego o el abonado?</button></div>';
   if(!navigator.onLine) html += '<div class="nota-inicio">Sin red: lo que apuntes se guarda en el móvil y se sube cuando vuelva la conexión.</div>';
   app.innerHTML = html;
 }
@@ -2076,6 +2110,8 @@ function pintarLista(){
   const parados = valvulasEnParada();
   const c = hechasDelDia(S.fecha), falta = c.total - c.hechas;
   let html = tiraDias() + avisoFecha();
+  const parR = riegoParado(S.fecha) ? paradaEn(S.fecha, "riego") : null;
+  if(parR) html += '<div class="caja-aviso info">' + esc(textoParada(parR)) + ". No hace falta leer; si lees algún contador, se guarda igual.</div>";
   html += '<div class="barra-prog"><span class="txt ' + (falta === 0 ? "ok" : "") + '">' + (c.total === 0 ? (parados.length ? "Riego en parada" : "Sin contadores") : falta === 0 ? "Todos apuntados" : "Faltan " + falta + " de " + c.total) + '</span><span class="bar"><i style="width:' + (c.total ? Math.round(c.hechas / c.total * 100) : 0) + '%"></i></span></div>';
   const conPos = valvulasActivas().some(v => v.latitud != null) || S.m.poligonos.length > 0;
   html = '<div class="conmutador"><button class="' + (S.listaModo === "lista" ? "on" : "") + '" onclick="modoLista(\'lista\')">Por día</button><button class="' + (S.listaModo === "dias" ? "on" : "") + '" onclick="modoLista(\'dias\')">Días anteriores</button>' + (conPos ? '<button class="' + (S.listaModo === "mapa" ? "on" : "") + '" onclick="modoLista(\'mapa\')">Mapa</button>' : "") + "</div>" + (S.listaModo === "dias" ? "" : html);
@@ -2219,6 +2255,38 @@ async function diaSinRiego(d){
   S.reg.push(...recs);
   toast("Marcado sin riego (en el móvil)");
 
+  pintar();
+}
+
+async function pararRiego(){
+  const tipo = await hoja({titulo: "¿Qué se para?", opciones: [{t: "El riego (y el abonado)", v: "riego", c: "ok"}, {t: "Solo el abonado (se sigue regando)", v: "abonado"}, {t: "Volver", v: null, c: "gris"}]});
+  if(!tipo) return;
+  const motivo = await hoja({titulo: "¿Por qué?", opciones: ["Fin de campaña", "Lluvia", "Avería", "Otro"].map(m => ({t: m, v: m, c: "gris"})).concat([{t: "Volver", v: null, c: "gris"}])});
+  if(!motivo) return;
+  const desde = await hoja({titulo: "¿Desde cuándo?", opciones: [{t: "Desde hoy (" + DSEM_L[diaSemana(hoy())] + " " + Number(hoy().slice(8)) + ")", v: hoy(), c: "ok"}, {t: "Desde ayer (" + DSEM_L[diaSemana(ayer())] + " " + Number(ayer().slice(8)) + ")", v: ayer()}, {t: "Volver", v: null, c: "gris"}]});
+  if(!desde) return;
+  const ok = await hoja({titulo: "¿Seguro?", msg: (tipo === "riego" ? "La app dejará de pedir lecturas y gasto de abonado" : "La app dejará de pedir el gasto de abonado") + " desde " + esc(etiquetaDiaLarga(desde)) + " hasta que pulses «Reanudar».", opciones: [{t: tipo === "riego" ? "Sí, parar el riego" : "Sí, parar el abonado", v: "ok", c: "ok"}, {t: "Volver", v: null, c: "gris"}]});
+  if(ok !== "ok") return;
+  const rec = {id: uuid(), tipo: "parada", id_cabezal: S.cabezalId, tipo_parada: tipo, desde, hasta: null, motivo, id_persona: S.personaId, registrado: new Date().toISOString(), estado: "pendiente", origen: "movil", error: null};
+  await regPut(rec); S.reg.push(rec);
+  toast((tipo === "riego" ? "Riego" : "Abonado") + " parado (guardado en el móvil)");
+  pintar();
+}
+async function reanudar(tipo){
+  const p = paradaAbierta(tipo); if(!p) return;
+  const d = await hoja({titulo: tipo === "riego" ? "Reanudar el riego" : "Reanudar el abonado", msg: "¿Desde qué día se vuelve a " + (tipo === "riego" ? "regar" : "abonar") + "?", opciones: [{t: "Desde hoy", v: hoy(), c: "ok"}, {t: "Desde ayer", v: ayer()}, {t: "Volver", v: null, c: "gris"}]});
+  if(!d) return;
+  if(d <= p.desde){
+    const r = await hoja({titulo: "Quitar la parada", msg: "La parada empieza " + esc(etiquetaDiaLarga(p.desde)) + ": si al final no se paró, se quita como si no se hubiera puesto.", opciones: [{t: "Quitar la parada", v: "ok", c: "ok"}, {t: "Volver", v: null, c: "gris"}]});
+    if(r !== "ok") return;
+    p.anulada = true; p.estado = "pendiente"; p.error = null;
+    await regPut(p);
+    toast("Parada quitada (guardado en el móvil)");
+    pintar(); return;
+  }
+  p.hasta = d; p.estado = "pendiente"; p.error = null;
+  await regPut(p);
+  toast((tipo === "riego" ? "Riego" : "Abonado") + " reanudado (guardado en el móvil)");
   pintar();
 }
 function abrirLectura(idV, desdeAdmin, fecha){
@@ -2482,9 +2550,11 @@ function siguienteContador(){
 }
 function abrirAbonado(){ ir("abonado"); }
 function pintarAbonado(){
-  const a = ayer(), enUso = filasGasto(), falta = enUso.filter(f => !tieneGasto(f.productos[0].id_producto, a));
+  const a = ayer(), parada = paradaEn(a, "abonado") || paradaAbierta("abonado") || paradaAbierta("riego");
+  const enUso = parada ? [] : filasGasto(), falta = enUso.filter(f => !tieneGasto(f.productos[0].id_producto, a));
   let h = "";
-  if(enUso.length) h += '<div class="envio ' + (falta.length ? "ambar" : "verde") + '"><div><b>Gasto ' + esc(deDia(a)) + " (" + esc(DSEM_L[diaSemana(a)] + " " + Number(a.slice(8))) + ")</b><span>" + (falta.length ? "Faltan " + falta.length + " de " + enUso.length + " por medir" : "Todo apuntado") + '</span></div><button onclick="abrirGasto()">' + (falta.length ? "Apuntar" : "Ver") + "</button></div>";
+  if(parada) h += '<div class="envio gris"><div><b>' + esc(textoParada(parada)) + '</b><span>No se pide el gasto. Si echas producto o llega un camión, apúntalo igual.</span></div>' + (!parada.hasta ? '<button onclick="reanudar(\'' + parada.tipo_parada + '\')">Reanudar</button>' : "") + "</div>";
+  else if(enUso.length) h += '<div class="envio ' + (falta.length ? "ambar" : "verde") + '"><div><b>Gasto ' + esc(deDia(a)) + " (" + esc(DSEM_L[diaSemana(a)] + " " + Number(a.slice(8))) + ")</b><span>" + (falta.length ? "Faltan " + falta.length + " de " + enUso.length + " por medir" : "Todo apuntado") + '</span></div><button onclick="abrirGasto()">' + (falta.length ? "Apuntar" : "Ver") + "</button></div>";
   h += '<div class="acciones-ab">' +
     '<button class="accion-ab" onclick="abrirEntrada()">' + ICONO_CAMION + '<div><b>Ha llegado producto</b><span>Entrada del camión, en kg o L</span></div></button>' +
     '<button class="accion-ab" onclick="abrirPreparar()">' + ICONO_TANQUE + '<div><b>He echado al tanque</b><span>Lo que disuelves o repones, en kg</span></div></button>' +
@@ -2500,6 +2570,7 @@ function pintarAbonado(){
       return '<div class="hay-fila"><div><b>' + esc(p.nombre) + "</b><span>" + (esLiquido(p) ? "en tanques" : "en almacén") + (pf && pf.tanques ? ", " + esc(pf.tanques) : "") + (st.sinRecuento ? ", sin recuento" : "") + '</span></div><span class="hay-n' + (neg ? " neg" : "") + '">' + (st.hayBase || st.valor ? fmt(st.valor) + " " + st.unidad : "—") + "</span></div>";
     }).join("") + "</div>";
   }
+  if(S.m.parte) h += '<div style="text-align:center;margin-top:10px"><button class="enlace" onclick="verParte()">Parte de fertilización vigente (desde ' + esc(etiquetaDia(S.m.parte.desde)) + ")</button></div>";
   h += '<div class="botonera" style="justify-content:center"><button class="btn claro" onclick="abrirRecuento()">Recuento del almacén</button><button class="btn claro" onclick="abrirTraspaso()">Préstamo a otra finca</button></div>';
   $("#app").innerHTML = h;
 }
@@ -2602,10 +2673,11 @@ function prepararGasto(){
 }
 function pintarGasto(){
   if(!S.edG || S.edG.fecha !== S.fecha) prepararGasto();
+  const parG = abonadoParado(S.fecha) ? paradaEn(S.fecha, "abonado") : null;
   const e = S.edG, filas = filasGasto(), prods = productosEnUso();
   let h = '<div class="conmutador"><button class="' + (S.gastoModo !== "dias" ? "on" : "") + '" onclick="modoGasto(\'dia\')">Por día</button><button class="' + (S.gastoModo === "dias" ? "on" : "") + '" onclick="modoGasto(\'dias\')">Días anteriores</button></div>';
   if(S.gastoModo === "dias"){ $("#app").innerHTML = h + (prods.length ? htmlGastoDias() : '<div class="vacio">Esta finca aún no tiene productos habituales.</div>'); return; }
-  h += fechaBoton("elegirFechaGasto") + '<div class="etq">Litros que ha bajado cada tanque desde la marca anterior. Deja vacío lo que no se usó.</div>';
+  h += fechaBoton("elegirFechaGasto") + (parG ? '<div class="caja-aviso info">' + esc(textoParada(parG)) + ". No hace falta apuntar nada.</div>" : "") + '<div class="etq">Litros que ha bajado cada tanque desde la marca anterior. Deja vacío lo que no se usó.</div>';
   if(!filas.length){ $("#app").innerHTML = h + '<div class="vacio">Esta finca aún no tiene productos habituales.</div>'; return; }
   filas.forEach(fl => {
     const f = e.filas[fl.clave]; if(!f) return;
@@ -2723,6 +2795,12 @@ function pintarPreparar(){
       if(pr){
         const st = stockDe(l.id_producto);
         h += '<div class="etq">¿Cuántos kg de ' + esc(pr.nombre) + '?</div><div class="cifra-tq">' + (l.texto || '<span style="opacity:.3">0</span>') + " <small>kg</small></div>" + tecladoHTML("prepTecla");
+        const lp = parteDe(l.id_producto);
+        if(lp && (lp.concentracion_kg_1000l || lp.cantidad)){
+          const cap = lp.capacidad_l || (productoFinca(l.id_producto) || {}).capacidad_tanques_l || null;
+          const kg = lp.cantidad != null ? lp.cantidad : (cap && lp.concentracion_kg_1000l ? lp.concentracion_kg_1000l * cap / 1000 : null);
+          h += '<div class="caja-aviso info">El parte dice ' + (lp.concentracion_kg_1000l ? fmtAuto(lp.concentracion_kg_1000l) + " kg por cada 1.000 L" : "") + (kg != null && cap ? (lp.concentracion_kg_1000l ? ": " : "") + fmt(kg) + " " + (lp.unidad || "kg") + " para " + fmt(cap) + " L" + (lp.tanques > 1 ? " (" + lp.tanques + " tanques)" : "") : "") + ".</div>";
+        }
         if(st.hayBase) h += '<div class="caja-aviso info">Hay ahora ' + fmt(st.valor) + " kg en almacén" + (numTexto(l.texto) ? "; después quedarán " + fmt(st.valor - numTexto(l.texto)) + " kg" : "") + ".</div>";
       }
       if(e.lineas.length > 1) h += '<div style="text-align:center"><button class="enlace" onclick="prepQuitarLinea(' + i + ')">Quitar este producto</button></div>';
@@ -2893,6 +2971,12 @@ async function guardarValvula2(){
   toast("Guardado: " + pr.nombre + " en " + recs.length + (recs.length === 1 ? " válvula" : " válvulas"));
 
   volver();
+}
+
+async function verParte(){
+  const pt = S.m.parte; if(!pt) return;
+  const filas = (pt.partes_depositos || []).slice().sort((a, b) => (a.orden || 0) - (b.orden || 0)).map(l => { const p = producto(l.id_producto) || {}; return "<tr><td style='text-align:left'>" + esc((l.nombre_deposito ? l.nombre_deposito + ": " : "") + (p.nombre || "?")) + "</td><td>" + (l.concentracion_kg_1000l != null ? fmtAuto(Number(l.concentracion_kg_1000l)) : "puro") + "</td><td>" + (l.cantidad != null ? fmtAuto(Number(l.cantidad)) + " " + esc(l.unidad || "") + (l.capacidad_l ? " / " + fmt(Number(l.capacidad_l)) + " L" : "") : "–") + "</td><td>" + (l.velocidad_l_m3 != null ? fmtAuto(Number(l.velocidad_l_m3)) : "–") + "</td></tr>"; }).join("");
+  await hoja({titulo: "Parte vigente", msg: "Desde " + esc(etiquetaDiaLarga(pt.desde)) + (pt.hasta ? " hasta " + esc(etiquetaDiaLarga(pt.hasta)) : "") + (pt.riego_m3_dia ? ". Riego previsto: " + fmtAuto(Number(pt.riego_m3_dia)) + " m³ al día" : "") + '.<div class="tabla-scroll" style="margin-top:8px"><table><thead><tr><th>Tanque y producto</th><th>kg por 1.000 L</th><th>Echar</th><th>L/m³</th></tr></thead><tbody>' + filas + "</tbody></table></div>", opciones: [{t: "Entendido", v: null, c: "gris"}]});
 }
 async function abrirAdmin(){
   if(!S.admin){
@@ -3581,7 +3665,8 @@ window.addEventListener("online", () => { pintarCabecera(); pintarPie(); if(S.vi
 function firmaConfig(){
   const t = {}, c = {};
   valvulasCabezal().forEach(v => { c[v.id_valvula] = {nombre: nombreContador(v), activo: !!v.activo, parada: !!v.en_parada}; });
-  return {t, c, hab: productosHabituales().map(p => p.nombre).sort()};
+  const pr = paradaAbierta("riego") || paradaAbierta("abonado");
+  return {t, c, hab: productosHabituales().map(p => p.nombre).sort(), parte: S.m.parte ? S.m.parte.id_parte : null, parteDesde: S.m.parte ? S.m.parte.desde : null, parada: pr ? pr.id : null, paradaTxt: pr ? textoParada(pr) : null};
 }
 function diferencias(a, b){
   const out = [];
@@ -3602,6 +3687,9 @@ function diferencias(a, b){
       if(x.activo !== y.activo) out.push(y.nombre + (y.activo ? " vuelve a estar en uso" : " se ha dado de baja"));
     }
   });
+  if(b.parte && b.parte !== a.parte) out.push("Nuevo equilibrio de fertilización desde " + etiquetaDiaLarga(b.parteDesde).replace(/^el /, "el "));
+  if(b.parada && b.parada !== a.parada) out.push(b.paradaTxt);
+  if(!b.parada && a.parada) out.push("Se ha reanudado el riego o el abonado");
   const nuevosHab = b.hab.filter(n => !a.hab.includes(n));
   if(nuevosHab.length) out.push("Productos nuevos en la finca: " + nuevosHab.join(", "));
   return out;
